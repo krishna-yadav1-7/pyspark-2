@@ -1,0 +1,46 @@
+### Loding data into dataframe from dbfs root directory
+#Cleanup and setup
+-------------------
+base_data_dir = "/FileStore/path/of/file"
+
+spark.sql("drop table if exists word_count_table")
+dbutils.fs.rm("/user/hive/warehouse/word_count_table", True)
+
+----------------------------------------------------------------------------------------
+## Direct method to load data
+-----------------------------
+
+lines = (spark.read
+            .format("text")
+            .option("lineSep", ".")
+            .load(f"{base_data_dir}/tables")
+            )
+
+-------------------------------------------------------------------------------------------
+###--TRANSFORMATION STAGE----##
+___Multiple stages involve___
+------------------------------
+
+from pyspark.sql.functions import explode, split, trim, lower
+
+raw_words = lines.select(explode(split(lines.value, " ")).alias("word"))
+
+quality_words = (raw_words.select(lower(trim(raw_words.word)).alias("word"))
+                        .where("word is not null")
+                        .where("word rlike '[a-z]'")
+                )
+wordCounts = quality_words.groupBy("word").count()     
+--------------------------------------------------------------------------------------------
+####- Loading Data into Destination ---###
+------------------------------------------
+
+(wordCounts.write
+            .format("delta")
+            .mode("overwrite")
+            .saveAsTable("word_count_table")
+)
+
+
+### Destination location where this table stored is Hive metastore
+
+%fs ls dbfs:/user/hive/warehouse/word_count_table/part-00000-4d96d2c3-5410-47fa-8c07-ea32d2aeb0d7-c000.snappy.parquet
